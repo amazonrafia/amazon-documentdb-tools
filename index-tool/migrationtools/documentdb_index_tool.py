@@ -66,10 +66,12 @@ class DocumentDbUnsupportedFeatures(object):
     def __init__(self):
         pass
 
-    UNSUPPORTED_INDEX_TYPES = ['2d', '2dsphere', 'geoHaystack', 'hashed']
-    UNSUPPORTED_INDEX_OPTIONS = ['storageEngine', 'collation', 'dropDuplicates']
+    UNSUPPORTED_INDEX_TYPES = ['2d', 'geoHaystack', 'hashed']
+    
+    UNSUPPORTED_INDEX_OPTIONS = ['storageEngine', 'collation', 'dropDuplicates','hidden']
     UNSUPPORTED_COLLECTION_OPTIONS = ['capped']
     IGNORED_INDEX_OPTIONS = ['2dsphereIndexVersion']
+    
 
 
 class IndexToolConstants(object):
@@ -98,6 +100,7 @@ class IndexToolConstants(object):
     UNSUPPORTED_INDEX_OPTIONS_KEY = 'unsupported_index_options'
     UNSUPPORTED_COLLECTION_OPTIONS_KEY = 'unsupported_collection_options'
     UNSUPPORTED_INDEX_TYPES_KEY = 'unsupported_index_types'
+    WILD_INDEX_IDENTIFIER ='$**'
 
 
 class DocumentDbIndexTool(IndexToolConstants):
@@ -312,7 +315,7 @@ class DocumentDbIndexTool(IndexToolConstants):
                 "Beginning recursive discovery of metadata files, starting at %s",
                 start_path)
             metadata_files = self._find_metadata_files(start_path)
-
+            
             if metadata_files == []:
                 logging.error("No metadata files found beneath directory: %s",
                               start_path)
@@ -335,121 +338,86 @@ class DocumentDbIndexTool(IndexToolConstants):
 
     def find_compatibility_issues(self, metadata):
         """Check db, collection and index data in metadata files for compatibility with DocumentDB"""
+
         compatibility_issues = AutovivifyDict()
 
         for db_name in metadata:
+            
             db_metadata = metadata[db_name]
-
+    
             if len(db_name) > DocumentDbLimits.DATABASE_NAME_MAX_LENGTH:
-                message = 'Database name greater than {} characters'.format(
-                    DocumentDbLimits.DATABASE_NAME_MAX_LENGTH)
-                compatibility_issues[db_name][
-                    self.EXCEEDED_LIMITS][message] = db_name
+                message = 'Database name greater than {} characters'.format(DocumentDbLimits.DATABASE_NAME_MAX_LENGTH)
+                compatibility_issues[db_name][self.EXCEEDED_LIMITS][message] = db_name
 
             for collection_name in metadata[db_name]:
                 collection_metadata = db_metadata[collection_name]
-
-                if len(collection_name
-                       ) > DocumentDbLimits.COLLECTION_NAME_MAX_LENGTH:
-                    message = 'Collection name greater than {} characters'.format(
-                        DocumentDbLimits.COLLECTION_NAME_MAX_LENGTH)
-                    compatibility_issues[db_name][collection_name][
-                        self.EXCEEDED_LIMITS][message] = collection_name
+            
+                if len(collection_name) > DocumentDbLimits.COLLECTION_NAME_MAX_LENGTH:
+                    message = 'Collection name greater than {} characters'.format(DocumentDbLimits.COLLECTION_NAME_MAX_LENGTH)
+                    compatibility_issues[db_name][collection_name][self.EXCEEDED_LIMITS][message] = collection_name
 
                 collection_namespace = '{}.{}'.format(db_name, collection_name)
                 # <db>.<collection>
-                if len(collection_namespace
-                       ) > DocumentDbLimits.NAMESPACE_MAX_LENGTH:
-                    message = 'Namespace greater than {} characters'.format(
-                        DocumentDbLimits.NAMESPACE_MAX_LENGTH)
-                    compatibility_issues[db_name][collection_name][
-                        self.EXCEEDED_LIMITS][message] = collection_namespace
+                if len(collection_namespace) > DocumentDbLimits.NAMESPACE_MAX_LENGTH:
+                    message = 'Namespace greater than {} characters'.format(DocumentDbLimits.NAMESPACE_MAX_LENGTH)
+                    compatibility_issues[db_name][collection_name][self.EXCEEDED_LIMITS][message] = collection_namespace
 
                 if self.OPTIONS in collection_metadata:
                     for option_key in collection_metadata[self.OPTIONS]:
+                        print(option_key)
                         if option_key in DocumentDbUnsupportedFeatures.UNSUPPORTED_COLLECTION_OPTIONS and collection_metadata[self.OPTIONS][option_key] is True:
-                            if self.UNSUPPORTED_COLLECTION_OPTIONS_KEY not in compatibility_issues[
-                                    db_name][collection_name]:
-                                compatibility_issues[db_name][collection_name][
-                                    self.
-                                    UNSUPPORTED_COLLECTION_OPTIONS_KEY] = []
+                            if self.UNSUPPORTED_COLLECTION_OPTIONS_KEY not in compatibility_issues[db_name][collection_name]:
+                                compatibility_issues[db_name][collection_name][self.UNSUPPORTED_COLLECTION_OPTIONS_KEY] = []
 
-                            compatibility_issues[db_name][collection_name][
-                                self.
-                                UNSUPPORTED_COLLECTION_OPTIONS_KEY].append(
-                                    option_key)
+                            compatibility_issues[db_name][collection_name][self.UNSUPPORTED_COLLECTION_OPTIONS_KEY].append(option_key)
 
                 for index_name in collection_metadata[self.INDEXES]:
                     index = collection_metadata[self.INDEXES][index_name]
 
                     # <collection>$<index>
-                    collection_qualified_index_name = '{}${}'.format(
-                        collection_name, index_name)
-                    if len(
-                            collection_qualified_index_name
-                    ) > DocumentDbLimits.COLLECTION_QUALIFIED_INDEX_NAME_MAX_LENGTH and self.args.shorten_index_name is False:
-                        message = '<collection>$<index> greater than {} characters'.format(
-                            DocumentDbLimits.
-                            COLLECTION_QUALIFIED_INDEX_NAME_MAX_LENGTH)
-                        compatibility_issues[db_name][collection_name][
-                            index_name][self.EXCEEDED_LIMITS][
-                                message] = collection_qualified_index_name
+                    collection_qualified_index_name = '{}${}'.format(collection_name, index_name)
+                    
+                    if len(collection_qualified_index_name) > DocumentDbLimits.COLLECTION_QUALIFIED_INDEX_NAME_MAX_LENGTH and self.args.shorten_index_name is False:
+                        message = '<collection>$<index> greater than {} characters'.format(DocumentDbLimits.COLLECTION_QUALIFIED_INDEX_NAME_MAX_LENGTH)
+                        compatibility_issues[db_name][collection_name][index_name][self.EXCEEDED_LIMITS][message] = collection_qualified_index_name
 
                     # <db>.<collection>$<index>
-                    fully_qualified_index_name = '{}${}'.format(
-                        collection_namespace, index_name)
-                    if len(
-                            fully_qualified_index_name
-                    ) > DocumentDbLimits.FULLY_QUALIFIED_INDEX_NAME_MAX_LENGTH and self.args.shorten_index_name is False:
-                        message = '<db>.<collection>$<index> greater than {} characters'.format(
-                            DocumentDbLimits.
-                            FULLY_QUALIFIED_INDEX_NAME_MAX_LENGTH)
-                        compatibility_issues[db_name][collection_name][
-                            index_name][self.EXCEEDED_LIMITS][
-                                message] = fully_qualified_index_name
+                    fully_qualified_index_name = '{}${}'.format(collection_namespace, index_name)
+                    
+                    if len(fully_qualified_index_name) > DocumentDbLimits.FULLY_QUALIFIED_INDEX_NAME_MAX_LENGTH and self.args.shorten_index_name is False:
+                        message = '<db>.<collection>$<index> greater than {} characters'.format(DocumentDbLimits.FULLY_QUALIFIED_INDEX_NAME_MAX_LENGTH)
+                        compatibility_issues[db_name][collection_name][index_name][self.EXCEEDED_LIMITS][message] = fully_qualified_index_name
 
                     # Check for indexes with too many keys
                     if len(index) > DocumentDbLimits.COMPOUND_INDEX_MAX_KEYS:
-                        message = 'Index contains more than {} keys'.format(
-                            DocumentDbLimits.COMPOUND_INDEX_MAX_KEYS)
-                        compatibility_issues[db_name][collection_name][
-                            index_name][self.EXCEEDED_LIMITS][message] = len(
-                                index)
+                        message = 'Index contains more than {} keys'.format(DocumentDbLimits.COMPOUND_INDEX_MAX_KEYS)
+                        compatibility_issues[db_name][collection_name][index_name][self.EXCEEDED_LIMITS][message] = len(index)
 
                     for key_name in index:
+                       
                         # Check for index key names that are too long
-                        if len(key_name
-                               ) > DocumentDbLimits.INDEX_KEY_MAX_LENGTH:
-                            message = 'Key name greater than {} characters'.format(
-                                DocumentDbLimits.INDEX_KEY_MAX_LENGTH)
-                            compatibility_issues[db_name][collection_name][
-                                index_name][
-                                    self.EXCEEDED_LIMITS][message] = key_name
+                        if len(key_name) > DocumentDbLimits.INDEX_KEY_MAX_LENGTH:
+                            message = 'Key name greater than {} characters'.format(DocumentDbLimits.INDEX_KEY_MAX_LENGTH)
+                            compatibility_issues[db_name][collection_name][index_name][self.EXCEEDED_LIMITS][message] = key_name
 
                         # Check for unsupported index options like collation
                         if key_name in DocumentDbUnsupportedFeatures.UNSUPPORTED_INDEX_OPTIONS:
-                            if self.UNSUPPORTED_INDEX_OPTIONS_KEY not in compatibility_issues[
-                                    db_name][collection_name][index_name]:
-                                compatibility_issues[db_name][collection_name][
-                                    index_name][
-                                        self.
-                                        UNSUPPORTED_INDEX_OPTIONS_KEY] = []
+                            if self.UNSUPPORTED_INDEX_OPTIONS_KEY not in compatibility_issues[db_name][collection_name][index_name]:
+                                compatibility_issues[db_name][collection_name][index_name][self.UNSUPPORTED_INDEX_OPTIONS_KEY] = []
 
-                            compatibility_issues[db_name][collection_name][
-                                index_name][
-                                    self.UNSUPPORTED_INDEX_OPTIONS_KEY].append(
-                                        key_name)
+                            compatibility_issues[db_name][collection_name][index_name][self.UNSUPPORTED_INDEX_OPTIONS_KEY].append(key_name)
 
                         # Check for unsupported index types
                         if key_name == self.INDEX_KEY:
                             for index_key_name in index[key_name]:
+                                # Check for wildcard index
+                                if self.WILD_INDEX_IDENTIFIER in index_key_name:
+                                    compatibility_issues[db_name][collection_name][index_name][self.UNSUPPORTED_INDEX_TYPES_KEY] = 'wildindex'
+
                                 key_value = index[key_name][index_key_name]
 
                                 if key_value in DocumentDbUnsupportedFeatures.UNSUPPORTED_INDEX_TYPES:
-                                    compatibility_issues[db_name][
-                                        collection_name][index_name][
-                                            self.
-                                            UNSUPPORTED_INDEX_TYPES_KEY] = key_value
+                                    compatibility_issues[db_name][collection_name][index_name][self.UNSUPPORTED_INDEX_TYPES_KEY] = key_value
 
         return compatibility_issues
 
